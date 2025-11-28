@@ -85,9 +85,18 @@ def print_table(column_names, rows):
     print(r"\end{tabularx}")
     print(r"\end{center}")
 
+def find_parameters(query):
+    parameters = set()
+    tokens = sqlparse.parse(query)[0]
+
+    for token in tokens.flatten():
+        if token.ttype is sqlparse.tokens.Name.Placeholder and token.value.startswith(":"):
+            parameters.add(token.value[1:])
+
+    return parameters
 
 def process_script(cursor, script):
-    script = "\n".join(list(filter(lambda line: not line.startswith("--"), script.split("\n"))))
+    script = "\n".join(list(filter(lambda line: not line.startswith("-- Task"), script.split("\n"))))
     queries = sqlparse.split(script)
     for query in queries:
         query.strip()
@@ -98,19 +107,26 @@ def process_script(cursor, script):
         print(query)
         print(r"\end{minted}")
 
+        params = find_parameters(query)
+
         if query.endswith(";"):
             query = query[:-1].rstrip()
 
-        cursor.execute(query)
-
-        column_names = [x[0] for x in cursor.description]
-        rows = cursor.fetchall()
+        filled_params = {}
+        for param in params:
+            print(f":{param}=", end="", file=stderr)
+            filled_params[param] = input()
         
-        if rows:
+
+        cursor.execute(query, filled_params)
+        if cursor.description is not None:
+            column_names = [x[0] for x in cursor.description]
+            rows = cursor.fetchall()
             print_table(column_names, rows)
+        elif cursor.rowcount > 0:
+            print(rf"\textbf{{{cursor.rowcount}}} {'row' if cursor.rowcount == 1 else 'rows'} affected.")
         else:
-            rows_affected = cursor.rowcount if cursor.rowcount else 0
-            print(rf"\textbf{{{rows_affected}}} rows affected.")
+            print(rf"Statement executed.")
 
 
 def main():
